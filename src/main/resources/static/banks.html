@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>题库管理 - 在线答题系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar-root"></div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>题库管理</h1>
+      <p>创建题库后，可以上传 docx 文件自动解析题目，或手动出题。</p>
+    </div>
+  </div>
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="card">
+    <h2>新建题库</h2>
+    <div class="field-row">
+      <div>
+        <label for="f-name">题库名称</label>
+        <input type="text" id="f-name" placeholder="如：中国近现代史纲要客观题题库">
+      </div>
+      <div>
+        <label for="f-subject">科目/分类（可选）</label>
+        <input type="text" id="f-subject" placeholder="如：思政课">
+      </div>
+      <div>
+        <label for="f-source">题目来源</label>
+        <select id="f-source">
+          <option value="IMPORT">文件导入</option>
+          <option value="MANUAL">手工创建</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="btn-create">创建题库</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>题库列表</h2>
+    <div id="list-wrap">
+      <div class="empty"><div class="icon">…</div>加载中</div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/common.js"></script>
+<script>
+renderNav('banks');
+
+const banner = document.getElementById('banner');
+
+function typeCountLine(bank) {
+  const parts = [];
+  if (bank.singleCount) parts.push(`单选 ${bank.singleCount}`);
+  if (bank.multipleCount) parts.push(`多选 ${bank.multipleCount}`);
+  if (bank.judgeCount) parts.push(`判断 ${bank.judgeCount}`);
+  if (bank.shortCount) parts.push(`简答 ${bank.shortCount}`);
+  return parts.length ? parts.join(' · ') : '暂无题目';
+}
+
+async function loadBanks() {
+  const wrap = document.getElementById('list-wrap');
+  try {
+    const banks = await Api.get('/api/bank');
+    if (!banks || banks.length === 0) {
+      wrap.innerHTML = '<div class="empty"><div class="icon">📚</div>还没有题库，先在上面创建一个吧</div>';
+      return;
+    }
+    wrap.innerHTML = banks.map((b) => `
+      <div class="list-row">
+        <div>
+          <div><strong>${escapeHtml(b.name)}</strong>
+            ${b.subject ? `<span class="badge neutral">${escapeHtml(b.subject)}</span>` : ''}
+            <span class="badge ${b.sourceType === 'IMPORT' ? 'teal' : 'neutral'}">${b.sourceType === 'IMPORT' ? '文件导入' : '手工创建'}</span>
+          </div>
+          <div class="meta">${typeCountLine(b)}</div>
+        </div>
+        <div class="actions" style="margin:0">
+          <a class="btn small" href="import.html?bankId=${b.id}&bankName=${encodeURIComponent(b.name)}">导入文件</a>
+          <a class="btn small" href="review.html?bankId=${b.id}&bankName=${encodeURIComponent(b.name)}">审核题目</a>
+          <button class="small danger" data-del="${b.id}">删除</button>
+        </div>
+      </div>
+    `).join('');
+
+    wrap.querySelectorAll('[data-del]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('确定删除这个题库吗？（逻辑删除，题目数据不会立即物理清除）')) return;
+        try {
+          await Api.delete('/api/bank/' + btn.dataset.del);
+          loadBanks();
+        } catch (e) {
+          showBanner(banner, e.message);
+        }
+      });
+    });
+  } catch (e) {
+    showBanner(banner, e.message);
+    wrap.innerHTML = '';
+  }
+}
+
+document.getElementById('btn-create').addEventListener('click', async () => {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { showBanner(banner, '请填写题库名称', 'warn'); return; }
+  try {
+    hideBanner(banner);
+    await Api.post('/api/bank', {
+      name,
+      subject: document.getElementById('f-subject').value.trim() || null,
+      sourceType: document.getElementById('f-source').value,
+      deptId: Number(Session.getDeptId()),
+      creatorId: Number(Session.getUserId()),
+      status: 1,
+    });
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-subject').value = '';
+    showBanner(banner, '题库创建成功', 'ok');
+    loadBanks();
+  } catch (e) {
+    showBanner(banner, e.message);
+  }
+});
+
+loadBanks();
+</script>
+</body>
+</html>

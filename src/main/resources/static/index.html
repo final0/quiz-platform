@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>在线答题系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar-root"></div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>在线答题系统</h1>
+      <p>题库导入解析 · 人工审核 · 组卷考试 · 错题巩固</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>题库管理</h2>
+    <p class="hint">创建题库、上传 docx 文件自动解析、审核解析出的题目。</p>
+    <div class="actions">
+      <a class="btn primary" href="banks.html">进入题库管理</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>试卷管理</h2>
+    <p class="hint">配置考试/练习试卷（随机组卷或固定试卷），发起考试。</p>
+    <div class="actions">
+      <a class="btn primary" href="papers.html">进入试卷管理</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>我的错题本</h2>
+    <p class="hint">查看历次答错的题目，支持只练错题、标记已掌握。</p>
+    <div class="actions">
+      <a class="btn primary" href="wrongbook.html">查看错题本</a>
+    </div>
+  </div>
+
+  <div class="card" style="background:var(--amber-soft); border-color:transparent;">
+    <h3 style="color:var(--amber)">提示</h3>
+    <p class="hint" style="color:var(--amber)">
+      当前登录鉴权还没接入，右上角"切换身份"设置的用户ID/部门ID仅用于标识操作人和考生身份，
+      不做真正的账号校验（对应后端 README 里写的已知简化项）。
+    </p>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/common.js"></script>
+<script>renderNav('');</script>
+</body>
+</html>
