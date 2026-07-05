@@ -33,6 +33,7 @@ public class QuestionImportServiceImpl implements QuestionImportService {
     private final QuestionBankMapper questionBankMapper;
     private final QuestionMapper questionMapper;
     private final QuestionPersistenceService questionPersistenceService;
+    private final com.quiz.platform.mapper.ImportAnomalyMapper importAnomalyMapper;
 
     @Override
     public Long importDocx(MultipartFile file, Long bankId, String parseMode, Long operatorId) {
@@ -80,16 +81,6 @@ public class QuestionImportServiceImpl implements QuestionImportService {
         }
     }
 
-    /**
-     * 解析入口。当前只实现了 RULE（规则解析引擎，已用真实题库文件验证700题0异常）。
-     *
-     * AI解析扩展点：当 parseMode=AI 时，这里替换成调用大模型API：
-     *   1. 用POI提取纯文本
-     *   2. 按约2000-3000字/批 切分文本，避免超出模型上下文
-     *   3. 提示词要求模型仅输出JSON数组，每题包含 stem/options/answer/type
-     *   4. 模型输出解析成 ParsedQuestion 列表，置信度统一先标记 LOW，强制进入人工审核环节
-     *   5. 两种解析路径最终都统一转换成 ParseResult，后续落库逻辑完全复用
-     */
     private ParseResult doParse(MultipartFile file, String parseMode) throws Exception {
         if ("AI".equalsIgnoreCase(parseMode)) {
             throw new BizException("AI解析引擎待接入，当前请使用规则解析");
@@ -97,6 +88,22 @@ public class QuestionImportServiceImpl implements QuestionImportService {
         try (InputStream is = file.getInputStream()) {
             return docxRuleBasedParser.parse(is);
         }
+    }
+
+    @Override
+    public com.quiz.platform.entity.ImportTask getTask(Long taskId) {
+        com.quiz.platform.entity.ImportTask task = importTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BizException("导入任务不存在: " + taskId);
+        }
+        return task;
+    }
+
+    @Override
+    public java.util.List<com.quiz.platform.entity.ImportAnomaly> listAnomalies(Long taskId) {
+        return importAnomalyMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.quiz.platform.entity.ImportAnomaly>()
+                        .eq(com.quiz.platform.entity.ImportAnomaly::getTaskId, taskId));
     }
 
     private void updateBankQuestionCount(QuestionBank bank) {
