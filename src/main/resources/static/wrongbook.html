@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的错题本 - 在线答题系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar-root"></div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>我的错题本</h1>
+      <p>练习或考试中答错的题目会自动收录在这里，答案已直接展示方便复习巩固。</p>
+    </div>
+  </div>
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="card">
+    <label><input type="checkbox" id="f-unmastered" checked style="width:auto;display:inline-block;margin-right:6px">只看未掌握的题目</label>
+  </div>
+
+  <div id="list-wrap"><div class="empty">加载中…</div></div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/common.js"></script>
+<script>
+renderNav('wrongbook');
+
+const banner = document.getElementById('banner');
+const TYPE_LABEL = { SINGLE: '单选题', MULTIPLE: '多选题', JUDGE: '判断题', SHORT_ANSWER: '简答题' };
+
+function questionHtml(q) {
+  const optionsHtml = q.options
+    ? Object.entries(q.options).map(([k, v]) => {
+        const isAnswer = (q.answer || '').includes(k);
+        return `<div class="option-row ${isAnswer ? 'correct' : ''}" style="cursor:default">
+                  <strong>${k}.</strong> ${escapeHtml(v)} ${isAnswer ? ' ✓' : ''}
+                </div>`;
+      }).join('')
+    : '';
+
+  return `
+    <div class="card" data-qid="${q.id}">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px">
+        <div style="flex:1">
+          <span class="badge neutral">${TYPE_LABEL[q.type] || q.type}</span>
+          <div class="question-stem" style="margin-top:8px">${escapeHtml(q.stem)}</div>
+          ${optionsHtml}
+          <div class="meta" style="margin-top:8px">正确答案：<strong>${escapeHtml(q.answer || '-')}</strong></div>
+          ${q.analysis ? `<div class="meta">解析：${escapeHtml(q.analysis)}</div>` : ''}
+        </div>
+        <button class="small primary" data-act="mastered">标记已掌握</button>
+      </div>
+    </div>
+  `;
+}
+
+async function loadList() {
+  const wrap = document.getElementById('list-wrap');
+  hideBanner(banner);
+  try {
+    const onlyUnmastered = document.getElementById('f-unmastered').checked;
+    const list = await Api.get('/api/wrong-book', { userId: Session.getUserId(), onlyUnmastered });
+
+    if (!list.length) {
+      wrap.innerHTML = '<div class="empty"><div class="icon">🎉</div>' +
+        (onlyUnmastered ? '没有未掌握的错题，保持住！' : '错题本是空的') + '</div>';
+      return;
+    }
+
+    wrap.innerHTML = list.map(questionHtml).join('');
+    wrap.querySelectorAll('[data-qid]').forEach((cardEl) => {
+      const qid = Number(cardEl.dataset.qid);
+      cardEl.querySelector('[data-act="mastered"]').addEventListener('click', async () => {
+        try {
+          await Api.post('/api/wrong-book/mastered', undefined, { userId: Session.getUserId(), questionId: qid });
+          loadList();
+        } catch (e) { showBanner(banner, e.message); }
+      });
+    });
+  } catch (e) {
+    showBanner(banner, e.message);
+    wrap.innerHTML = '';
+  }
+}
+
+document.getElementById('f-unmastered').addEventListener('change', loadList);
+loadList();
+</script>
+</body>
+</html>
