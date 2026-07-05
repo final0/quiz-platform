@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>审核题目 - 在线答题系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar-root"></div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>审核题目</h1>
+      <p id="bank-name-line">题库：—</p>
+    </div>
+    <a class="btn" href="banks.html">← 返回题库列表</a>
+  </div>
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="card">
+    <div class="field-row" style="align-items:end">
+      <div>
+        <label><input type="checkbox" id="f-low-only" style="width:auto;display:inline-block;margin-right:6px">只看低置信度（需人工修正的）</label>
+      </div>
+      <div>
+        <label for="f-size">每页数量</label>
+        <input type="number" id="f-size" value="20" min="5" max="100">
+      </div>
+      <div class="actions" style="margin-top:0">
+        <button id="btn-select-all">全选本页</button>
+        <button class="primary" id="btn-batch-approve">批量通过所选</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="list-wrap"></div>
+
+  <div class="actions" id="pager" style="justify-content:center"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/common.js"></script>
+<script>
+renderNav('banks');
+
+const params = new URLSearchParams(location.search);
+const bankId = params.get('bankId');
+const bankName = params.get('bankName') || ('#' + bankId);
+document.getElementById('bank-name-line').textContent = '题库：' + bankName;
+
+const banner = document.getElementById('banner');
+let currentPage = 1;
+
+const TYPE_LABEL = { SINGLE: '单选题', MULTIPLE: '多选题', JUDGE: '判断题', SHORT_ANSWER: '简答题' };
+
+function questionCardHtml(q) {
+  const optionsHtml = q.options
+    ? Object.entries(q.options).map(([k, v]) => `
+        <div class="option-row" style="cursor:default">
+          <strong>${k}.</strong> <span data-opt="${k}" contenteditable="true" style="outline:none;border-bottom:1px dashed var(--line)">${escapeHtml(v)}</span>
+        </div>`).join('')
+    : '';
+
+  const confBadge = q.parseConfidence === 'LOW'
+    ? '<span class="badge amber">低置信度</span>'
+    : '<span class="badge teal">高置信度</span>';
+
+  return `
+    <div class="card" data-qid="${q.id}">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px">
+        <div style="flex:1">
+          <div style="margin-bottom:8px">
+            <input type="checkbox" class="sel-box" style="width:auto;display:inline-block;margin-right:8px">
+            <span class="badge neutral">${TYPE_LABEL[q.type] || q.type}</span>
+            ${confBadge}
+            <span class="meta" style="display:inline">原题号 ${escapeHtml(q.sourceNum || '-')}</span>
+          </div>
+          <div class="question-stem" contenteditable="true" data-field="stem" style="outline:none;border-bottom:1px dashed var(--line); padding-bottom:4px">${escapeHtml(q.stem)}</div>
+          ${optionsHtml}
+          <div style="margin-top:10px">
+            <span class="meta">答案：</span>
+            <span contenteditable="true" data-field="answer" data-empty="${q.answer ? '0' : '1'}" style="outline:none;border-bottom:1px dashed var(--line); font-weight:700; ${!q.answer ? 'color:var(--red)' : ''}">${escapeHtml(q.answer || '')}</span>
+            ${!q.answer ? '<span class="meta" style="color:var(--red)"> ← 未识别到答案，请补充后再保存</span>' : ''}
+          </div>
+        </div>
+        <div class="actions" style="margin:0; flex-direction:column">
+          <button class="small primary" data-act="approve">通过</button>
+          <button class="small" data-act="save-approve">保存修改并通过</button>
+          <button class="small danger" data-act="reject">驳回</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function collectEdited(cardEl, original) {
+  const stem = cardEl.querySelector('[data-field="stem"]').textContent.trim();
+  const answer = cardEl.querySelector('[data-field="answer"]').textContent.trim();
+  const options = {};
+  cardEl.querySelectorAll('[data-opt]').forEach((el) => {
+    options[el.dataset.opt] = el.textContent.trim();
+  });
+  return {
+    id: original.id,
+    bankId: original.bankId,
+    type: original.type,
+    stem,
+    options: Object.keys(options).length ? options : null,
+    answer,
+    analysis: original.analysis,
+    difficulty: original.difficulty,
+    tags: original.tags,
+    sourceNum: original.sourceNum,
+  };
+}
+
+async function loadList() {
+  const wrap = document.getElementById('list-wrap');
+  wrap.innerHTML = '<div class="empty">加载中…</div>';
+  hideBanner(banner);
+  try {
+    const lowOnly = document.getElementById('f-low-only').checked;
+    const size = Number(document.getElementById('f-size').value) || 20;
+    const list = await Api.get('/api/review/pending', { bankId, lowConfidenceOnly: lowOnly, page: currentPage, size });
+
+    if (!list || list.length === 0) {
+      wrap.innerHTML = '<div class="empty"><div class="icon">✅</div>没有待审核的题目了</div>';
+      document.getElementById('pager').innerHTML = '';
+      return;
+    }
+
+    wrap.innerHTML = list.map(questionCardHtml).join('');
+
+    wrap.querySelectorAll('[data-qid]').forEach((cardEl) => {
+      const qid = Number(cardEl.dataset.qid);
+      const original = list.find((q) => q.id === qid);
+
+      cardEl.querySelector('[data-act="approve"]').addEventListener('click', () => approve(qid));
+      cardEl.querySelector('[data-act="reject"]').addEventListener('click', () => reject(qid));
+      cardEl.querySelector('[data-act="save-approve"]').addEventListener('click', () =>
+        saveAndApprove(collectEdited(cardEl, original))
+      );
+    });
+
+    renderPager(list.length, size);
+  } catch (e) {
+    showBanner(banner, e.message);
+    wrap.innerHTML = '';
+  }
+}
+
+function renderPager(countThisPage, size) {
+  const pager = document.getElementById('pager');
+  pager.innerHTML = `
+    <button ${currentPage <= 1 ? 'disabled' : ''} id="btn-prev">← 上一页</button>
+    <span class="meta" style="align-self:center">第 ${currentPage} 页</span>
+    <button ${countThisPage < size ? 'disabled' : ''} id="btn-next">下一页 →</button>
+  `;
+  document.getElementById('btn-prev')?.addEventListener('click', () => { currentPage--; loadList(); });
+  document.getElementById('btn-next')?.addEventListener('click', () => { currentPage++; loadList(); });
+}
+
+async function approve(id) {
+  try {
+    await Api.post(`/api/review/${id}/approve`);
+    loadList();
+  } catch (e) { showBanner(banner, e.message); }
+}
+
+async function reject(id) {
+  const reason = prompt('驳回原因（会记录在题目备注里）：', '解析内容有误');
+  if (reason === null) return;
+  try {
+    await Api.post(`/api/review/${id}/reject`, null, { reason });
+    loadList();
+  } catch (e) { showBanner(banner, e.message); }
+}
+
+async function saveAndApprove(question) {
+  if (!question.answer) {
+    showBanner(banner, '答案不能为空，请先补充答案再保存', 'warn');
+    return;
+  }
+  try {
+    await Api.put('/api/review/update-and-approve', question);
+    loadList();
+  } catch (e) { showBanner(banner, e.message); }
+}
+
+document.getElementById('f-low-only').addEventListener('change', () => { currentPage = 1; loadList(); });
+document.getElementById('f-size').addEventListener('change', () => { currentPage = 1; loadList(); });
+
+document.getElementById('btn-select-all').addEventListener('click', () => {
+  document.querySelectorAll('.sel-box').forEach((cb) => { cb.checked = true; });
+});
+
+document.getElementById('btn-batch-approve').addEventListener('click', async () => {
+  const ids = Array.from(document.querySelectorAll('.sel-box'))
+    .filter((cb) => cb.checked)
+    .map((cb) => Number(cb.closest('[data-qid]').dataset.qid));
+  if (ids.length === 0) {
+    showBanner(banner, '请先勾选要批量通过的题目', 'warn');
+    return;
+  }
+  try {
+    await Api.post('/api/review/batch-approve', ids);
+    loadList();
+  } catch (e) { showBanner(banner, e.message); }
+});
+
+loadList();
+</script>
+</body>
+</html>

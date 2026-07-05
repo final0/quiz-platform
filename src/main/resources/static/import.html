@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>导入题库文件 - 在线答题系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar-root"></div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>导入题库文件</h1>
+      <p id="bank-name-line">题库：—</p>
+    </div>
+    <a class="btn" href="banks.html">← 返回题库列表</a>
+  </div>
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="card">
+    <h2>上传 docx 文件</h2>
+    <p class="hint">支持"章节标题 + 题号 + 选项 + 括号内答案"格式的客观题题库（单选/多选/判断）。
+      规则解析对格式规整的题库准确率高、速度快；如果题库排版混乱，可以切换到 AI 解析（目前后端尚未接入，选择后会提示）。</p>
+
+    <label for="f-file">选择文件</label>
+    <input type="file" id="f-file" accept=".docx">
+
+    <label for="f-mode">解析方式</label>
+    <select id="f-mode">
+      <option value="RULE">规则解析（推荐，格式规整题库首选）</option>
+      <option value="AI">AI解析（排版混乱题库兜底，暂未接入）</option>
+    </select>
+
+    <div class="actions">
+      <button class="primary" id="btn-upload">上传并解析</button>
+    </div>
+  </div>
+
+  <div class="card" id="result-card" style="display:none">
+    <h2>解析结果</h2>
+    <div id="result-body"></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/common.js"></script>
+<script>
+renderNav('banks');
+
+const params = new URLSearchParams(location.search);
+const bankId = params.get('bankId');
+const bankName = params.get('bankName') || ('#' + bankId);
+document.getElementById('bank-name-line').textContent = '题库：' + bankName;
+
+const banner = document.getElementById('banner');
+
+document.getElementById('btn-upload').addEventListener('click', async () => {
+  const fileInput = document.getElementById('f-file');
+  const mode = document.getElementById('f-mode').value;
+  if (!fileInput.files.length) {
+    showBanner(banner, '请先选择要上传的 docx 文件', 'warn');
+    return;
+  }
+  const btn = document.getElementById('btn-upload');
+  btn.disabled = true;
+  btn.textContent = '解析中，请稍候…';
+  hideBanner(banner);
+
+  try {
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    const taskId = await Api.postForm('/api/import/docx', fd, {
+      bankId,
+      parseMode: mode,
+      operatorId: Session.getUserId(),
+    });
+    await showResult(taskId);
+  } catch (e) {
+    showBanner(banner, e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '上传并解析';
+  }
+});
+
+async function showResult(taskId) {
+  const task = await Api.get('/api/import/task/' + taskId);
+  const card = document.getElementById('result-card');
+  const body = document.getElementById('result-body');
+  card.style.display = 'block';
+
+  const anomalies = task.anomalyCount > 0 ? await Api.get('/api/import/anomalies', { taskId }) : [];
+
+  body.innerHTML = `
+    <div class="field-row" style="margin-bottom:16px">
+      <div><div class="meta">解析出的题目总数</div><h2 style="margin-top:4px">${task.totalCount ?? 0}</h2></div>
+      <div><div class="meta">高置信度（可直接审核）</div><h2 style="margin-top:4px;color:var(--teal)">${task.highConfCount ?? 0}</h2></div>
+      <div><div class="meta">低置信度（需人工修正）</div><h2 style="margin-top:4px;color:var(--amber)">${task.lowConfCount ?? 0}</h2></div>
+      <div><div class="meta">无法归类段落</div><h2 style="margin-top:4px;color:${task.anomalyCount > 0 ? 'var(--red)' : 'var(--ink-soft)'}">${task.anomalyCount ?? 0}</h2></div>
+    </div>
+    ${task.status === 'FAILED' ? `<div class="banner error" style="display:block">解析失败：${escapeHtml(task.errorMessage || '未知错误')}</div>` : ''}
+    ${anomalies.length ? `
+      <h3>无法归类的原始段落（需人工处理）</h3>
+      <ul>${anomalies.map((a) => `<li style="margin-bottom:6px">${escapeHtml(a.rawText)}</li>`).join('')}</ul>
+    ` : ''}
+    <div class="actions">
+      <a class="btn primary" href="review.html?bankId=${bankId}&bankName=${encodeURIComponent(bankName)}">前往审核题目 →</a>
+    </div>
+  `;
+}
+</script>
+</body>
+</html>
