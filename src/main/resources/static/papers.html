@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>试卷管理 - 在线答题系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="topbar-root"></div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>试卷管理</h1>
+      <p>配置随机组卷规则，生成考试/练习试卷。固定试卷（题目提前定好）目前仅支持后端接口配置。</p>
+    </div>
+  </div>
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="card">
+    <h2>新建试卷（随机组卷）</h2>
+    <div class="field-row">
+      <div>
+        <label for="f-name">试卷名称</label>
+        <input type="text" id="f-name" placeholder="如：近代史纲要模拟考试">
+      </div>
+      <div>
+        <label for="f-bank">出题题库</label>
+        <select id="f-bank"></select>
+      </div>
+      <div>
+        <label for="f-mode">模式</label>
+        <select id="f-mode">
+          <option value="EXAM">考试（限时）</option>
+          <option value="PRACTICE">练习（不限时）</option>
+        </select>
+      </div>
+    </div>
+
+    <h3 style="margin-top:20px">题型抽取配置</h3>
+    <div class="field-row">
+      <div>
+        <label for="f-single-count">单选题数量</label>
+        <input type="number" id="f-single-count" value="0" min="0">
+      </div>
+      <div>
+        <label for="f-single-score">单选题每题分值</label>
+        <input type="number" id="f-single-score" value="2" min="0" step="0.5">
+      </div>
+      <div>
+        <label for="f-multiple-count">多选题数量</label>
+        <input type="number" id="f-multiple-count" value="0" min="0">
+      </div>
+      <div>
+        <label for="f-multiple-score">多选题每题分值</label>
+        <input type="number" id="f-multiple-score" value="3" min="0" step="0.5">
+      </div>
+      <div>
+        <label for="f-judge-count">判断题数量</label>
+        <input type="number" id="f-judge-count" value="0" min="0">
+      </div>
+      <div>
+        <label for="f-judge-score">判断题每题分值</label>
+        <input type="number" id="f-judge-score" value="1" min="0" step="0.5">
+      </div>
+    </div>
+
+    <div class="field-row" style="margin-top:8px">
+      <div>
+        <label for="f-duration">考试时长（分钟）</label>
+        <input type="number" id="f-duration" value="30" min="1">
+      </div>
+      <div>
+        <label for="f-pass">及格分数线</label>
+        <input type="number" id="f-pass" value="60" min="0">
+      </div>
+    </div>
+    <p class="hint" id="total-preview"></p>
+
+    <div class="actions">
+      <button class="primary" id="btn-create">创建试卷</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>试卷列表</h2>
+    <div id="list-wrap"><div class="empty">加载中…</div></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/common.js"></script>
+<script>
+renderNav('papers');
+
+const banner = document.getElementById('banner');
+let banksCache = [];
+
+function num(id) { return Number(document.getElementById(id).value) || 0; }
+
+function updateTotalPreview() {
+  const total = num('f-single-count') * num('f-single-score')
+    + num('f-multiple-count') * num('f-multiple-score')
+    + num('f-judge-count') * num('f-judge-score');
+  document.getElementById('total-preview').textContent = `试卷总分：${total} 分`;
+}
+['f-single-count','f-single-score','f-multiple-count','f-multiple-score','f-judge-count','f-judge-score']
+  .forEach((id) => document.getElementById(id).addEventListener('input', updateTotalPreview));
+updateTotalPreview();
+
+async function loadBanksIntoSelect() {
+  banksCache = await Api.get('/api/bank');
+  const sel = document.getElementById('f-bank');
+  if (!banksCache.length) {
+    sel.innerHTML = '<option value="">（还没有题库，请先去题库管理创建）</option>';
+    return;
+  }
+  sel.innerHTML = banksCache.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+}
+
+document.getElementById('btn-create').addEventListener('click', async () => {
+  const name = document.getElementById('f-name').value.trim();
+  const bankId = document.getElementById('f-bank').value;
+  if (!name || !bankId) {
+    showBanner(banner, '请填写试卷名称并选择题库', 'warn');
+    return;
+  }
+  try {
+    hideBanner(banner);
+    await Api.post('/api/paper', {
+      name,
+      bankId: Number(bankId),
+      deptId: Number(Session.getDeptId()),
+      mode: document.getElementById('f-mode').value,
+      composeStrategy: 'RANDOM',
+      singleCount: num('f-single-count'),
+      singleScore: num('f-single-score'),
+      multipleCount: num('f-multiple-count'),
+      multipleScore: num('f-multiple-score'),
+      judgeCount: num('f-judge-count'),
+      judgeScore: num('f-judge-score'),
+      durationMinutes: num('f-duration'),
+      passScore: num('f-pass'),
+      status: 1,
+      creatorId: Number(Session.getUserId()),
+    });
+    showBanner(banner, '试卷创建成功', 'ok');
+    document.getElementById('f-name').value = '';
+    loadPapers();
+  } catch (e) {
+    showBanner(banner, e.message);
+  }
+});
+
+function bankName(bankId) {
+  const b = banksCache.find((x) => x.id === bankId);
+  return b ? b.name : ('题库#' + bankId);
+}
+
+async function loadPapers() {
+  const wrap = document.getElementById('list-wrap');
+  try {
+    const papers = await Api.get('/api/paper');
+    if (!papers.length) {
+      wrap.innerHTML = '<div class="empty"><div class="icon">📝</div>还没有试卷，先在上面创建一个吧</div>';
+      return;
+    }
+    wrap.innerHTML = papers.map((p) => `
+      <div class="list-row">
+        <div>
+          <div><strong>${escapeHtml(p.name)}</strong>
+            <span class="badge ${p.mode === 'EXAM' ? 'amber' : 'teal'}">${p.mode === 'EXAM' ? '考试' : '练习'}</span>
+          </div>
+          <div class="meta">题库：${escapeHtml(bankName(p.bankId))} · 总分 ${p.totalScore} · 及格线 ${p.passScore}
+            ${p.mode === 'EXAM' ? ' · 限时 ' + p.durationMinutes + ' 分钟' : ''}</div>
+        </div>
+        <div class="actions" style="margin:0">
+          <a class="btn small primary" href="exam.html?paperId=${p.id}">开始</a>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    showBanner(banner, e.message);
+  }
+}
+
+(async () => {
+  await loadBanksIntoSelect();
+  await loadPapers();
+})();
+</script>
+</body>
+</html>
